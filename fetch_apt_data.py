@@ -1,50 +1,32 @@
-"""국토교통부 아파트 실거래가(매매/전월세) -> apt-data.json
-사용법:
-  1) 공공데이터포털에서 아래 두 API를 활용신청하고 인증키(Decoding)를 받습니다.
-     - 국토교통부_아파트 매매 실거래가 상세 자료
-     - 국토교통부_아파트 전월세 실거래가 자료
-  2) export DATA_GO_KR_KEY="발급받은키"   (Windows: set DATA_GO_KR_KEY=...)
-  3) python fetch_apt_data.py
-  4) 만들어진 apt-data.json을 웹 페이지의 '실거래가 데이터' 칸에서 선택합니다.
+"""국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json
+GitHub Actions에서 매일 자동 실행됩니다. 로컬 실행: export DATA_GO_KR_KEY="인증키(Decoding)" 후 python fetch_apt_data.py
 """
-import os, json, time, datetime, urllib.parse, urllib.request
+import os, json, time, datetime, urllib.parse, urllib.request, urllib.error
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-KEY = os.environ["DATA_GO_KR_KEY"]
-BASE = "http://apis.data.go.kr/1613000/"
+KEY = os.environ.get("DATA_GO_KR_KEY", "").strip()
+if not KEY:
+    raise SystemExit("DATA_GO_KR_KEY 값이 비어 있어요. GitHub Secrets 이름과 값을 확인하세요.")
+BASE = "https://apis.data.go.kr/1613000/"
 API = {
     "sale": "RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev",
-    "rent": "RTMSDataSvcAptRent/getRTMSDataSvcAptRent",  # 포털 상세 페이지에서 주소 확인
+    "rent": "RTMSDataSvcAptRent/getRTMSDataSvcAptRent",
 }
-GU = {"11140": "중구", "11200": "성동구"}  # 시군구 코드 5자리: 원하는 구를 추가
-START_YEAR = 2016       # 시작 연도 (넓힐수록 호출이 많아져요. 결과는 cache/ 에 저장돼 이어서 실행 가능)
-MIN_TRADES = 5          # 이 건수보다 적은 단지는 제외
+GU = {  # 서울 25개 구 (시군구 코드)
+    "11110": "종로구", "11140": "중구", "11170": "용산구", "11200": "성동구", "11215": "광진구",
+    "11230": "동대문구", "11260": "중랑구", "11290": "성북구", "11305": "강북구", "11320": "도봉구",
+    "11350": "노원구", "11380": "은평구", "11410": "서대문구", "11440": "마포구", "11470": "양천구",
+    "11500": "강서구", "11530": "구로구", "11545": "금천구", "11560": "영등포구", "11590": "동작구",
+    "11620": "관악구", "11650": "서초구", "11680": "강남구", "11710": "송파구", "11740": "강동구",
+}
+START_YEAR = 2020   # 시작 연도. 나중에 줄이면(예: 2016) 빠진 달만 추가로 받아요
+MIN_TRADES = 5      # 이 건수보다 적게 거래된 단지는 제외
+CACHE = "rowcache"
 
 
-def fetch(kind, gu, ym):
-    path = f"cache/{kind}_{gu}_{ym}.json"
-    t = datetime.date.today()
-    recent = (t.year * 12 + t.month) - (int(ym[:4]) * 12 + int(ym[4:])) <= 2  # 최근 3개월은 늦게 신고된 거래가 있어 매번 새로 받음
-    if os.path.exists(path) and not recent:
-        return json.load(open(path, encoding="utf-8"))
-    rows, page = [], 1
-    while True:
-        q = urllib.parse.urlencode({"serviceKey": KEY, "LAWD_CD": gu, "DEAL_YMD": ym,
-                                    "pageNo": page, "numOfRows": 1000})
-        root = ET.fromstring(urllib.request.urlopen(f"{BASE}{API[kind]}?{q}", timeout=30).read())
-        err = root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg")
-        if err:
-            raise RuntimeError(f"API 오류: {err}")
-        for it in root.findall(".//item"):
-            rows.append({c.tag: (c.text or "").strip() for c in it})
-        if page * 1000 >= int(root.findtext(".//totalCount") or 0):
-            break
-        page += 1
-    os.makedirs("cache", exist_ok=True)
-    json.dump(rows, open(path, "w", encoding="utf-8"), ensure_ascii=False)
-    time.sleep(0.2)
-    return rows
+class Quota(Exception):
+    pass
 
 
 def bucket(area):
@@ -52,47 +34,114 @@ def bucket(area):
     return "59" if 55 <= a < 63 else "84" if 80 <= a < 88 else None
 
 
-def won(s):  # "12,500" (만원) -> 억
-    return int(s.replace(",", "")) / 10000
+def parse(kind, r):  # 필요한 항목만 뽑아 작게 저장
+    b = bucket(r.get("excluUseAr"))
+    if not b or r.get("cdealDay"):  # 면적 구간 밖이거나 해제(취소)된 거래 제외
+        return None
+    if kind == "sale":
+        price = r.get("dealAmount", "")
+    elif r.get("monthlyRent", "0") in ("0", ""):  # 전세만
+        price = r.get("deposit", "")
+    else:
+        return None
+    try:
+        return [r["aptNm"], r.get("umdNm", ""), r.get("buildYear", ""), b, int(price.replace(",", ""))]
+    except (KeyError, ValueError):
+        return None
+
+
+def fetch(kind, gu, ym):
+    path = f"{CACHE}/{kind}_{gu}_{ym}.json"
+    t = datetime.date.today()
+    recent = (t.year * 12 + t.month) - (int(ym[:4]) * 12 + int(ym[4:])) <= 2  # 최근 3개월은 늦은 신고가 있어 매번 새로 받음
+    if os.path.exists(path) and not recent:
+        return json.load(open(path, encoding="utf-8"))
+    rows, page = [], 1
+    while True:
+        q = urllib.parse.urlencode({"serviceKey": KEY, "LAWD_CD": gu, "DEAL_YMD": ym,
+                                    "pageNo": page, "numOfRows": 1000})
+        req = urllib.request.Request(f"{BASE}{API[kind]}?{q}", headers={"User-Agent": "Mozilla/5.0"})
+        for attempt in range(4):
+            try:
+                root = ET.fromstring(urllib.request.urlopen(req, timeout=30).read())
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    raise Quota()
+                raise SystemExit(f"[{kind} {gu} {ym}] HTTP {e.code} {e.reason}: {e.read()[:300]!r}")
+            except (urllib.error.URLError, TimeoutError, ET.ParseError):
+                if attempt == 3:
+                    raise
+                time.sleep(3)
+                continue
+            err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
+            if "PER_SECOND" in err and attempt < 3:
+                time.sleep(3)
+                continue
+            if "EXCEEDS" in err:
+                raise Quota()
+            if err:
+                raise SystemExit(f"[{kind} {gu} {ym}] API 오류: {err}")
+            break
+        for it in root.findall(".//item"):
+            row = parse(kind, {c.tag: (c.text or "").strip() for c in it})
+            if row:
+                rows.append(row)
+        if page * 1000 >= int(root.findtext(".//totalCount") or 0):
+            break
+        page += 1
+    os.makedirs(CACHE, exist_ok=True)
+    json.dump(rows, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    time.sleep(0.15)
+    return rows
+
+
+def build(gname, rows_by_idx, M):
+    acc = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # (단지,동) -> (유형,면적) -> 월인덱스 -> [가격]
+    year = {}
+    for idx, kind, row in rows_by_idx:
+        name, dong, by, b, price = row
+        acc[(name, dong)][(kind, b)][idx].append(price / 10000)
+        year.setdefault((name, dong), int(by) if by.isdigit() else 0)
+    names = defaultdict(int)
+    for name, dong in acc:
+        names[name] += 1
+    out = []
+    for (name, dong), series in acc.items():
+        if sum(len(v) for d in series.values() for v in d.values()) < MIN_TRADES:
+            continue
+        c = {"n": name if names[name] == 1 else f"{name}({dong})", "y": year[(name, dong)],
+             "sale": {}, "rent": {}, "cnt": {"sale": {}, "rent": {}}}
+        for (kind, b), d in series.items():
+            c[kind][b] = [round(sum(d[i]) / len(d[i]), 2) if i in d else None for i in range(M)]
+            c["cnt"][kind][b] = [len(d[i]) if i in d else 0 for i in range(M)]
+        out.append(c)
+    return out
 
 
 def main():
     now = datetime.date.today()
-    agg = defaultdict(list)   # (구, 단지, 유형, 면적, 연-월) -> [가격(억)]
-    built = {}
-    for gu, gname in GU.items():
-        for y in range(START_YEAR, now.year + 1):
-            for m in range(1, 13):
-                if (y, m) > (now.year, now.month):
-                    break
+    months = [(y, m) for y in range(START_YEAR, now.year + 1) for m in range(1, 13) if (y, m) <= (now.year, now.month)]
+    M = len(months)
+    os.makedirs("data", exist_ok=True)
+    result = {}
+    try:
+        for gu, gname in GU.items():
+            rows = []
+            for idx, (y, m) in enumerate(months):
                 for kind in API:
-                    for r in fetch(kind, gu, f"{y}{m:02d}"):
-                        b = bucket(r.get("excluUseAr"))
-                        if not b:
-                            continue
-                        if kind == "sale":
-                            price = won(r["dealAmount"])
-                        elif r.get("monthlyRent", "0") in ("0", ""):  # 전세만
-                            price = won(r["deposit"])
-                        else:
-                            continue
-                        name = r["aptNm"]
-                        built.setdefault((gname, name), r.get("buildYear"))
-                        agg[(gname, name, kind, b, f"{y}-{m:02d}")].append(price)
-        print("완료:", gname)
-
-    cx = {}
-    for (gname, name, kind, b, ym), v in agg.items():
-        c = cx.setdefault((gname, name), {"n": name, "gu": gname,
-                          "y": int(built[(gname, name)] or 0) or None,
-                          "sale": {}, "rent": {}, "_n": 0})
-        c[kind].setdefault(b, {})[ym] = round(sum(v) / len(v), 2)
-        c.setdefault("cnt", {"sale": {}, "rent": {}})[kind].setdefault(b, {})[ym] = len(v)  # 거래량
-        c["_n"] += len(v)
-    out = [{k: v for k, v in c.items() if k != "_n"} for c in cx.values() if c["_n"] >= MIN_TRADES]
-    json.dump({"updated": now.strftime("%Y.%m"), "complexes": out},
-              open("apt-data.json", "w", encoding="utf-8"), ensure_ascii=False)
-    print(f"apt-data.json 저장: 단지 {len(out)}개")
+                    rows += [(idx, kind, r) for r in fetch(kind, gu, f"{y}{m:02d}")]
+            result[gu] = build(gname, rows, M)
+            print("완료:", gname, len(result[gu]), "개 단지", flush=True)
+    except Quota:
+        print("일일 호출 한도에 도달했어요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
+        return
+    for gu, cs in result.items():
+        json.dump({"gu": GU[gu], "complexes": cs}, open(f"data/{gu}.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, separators=(",", ":"))
+    json.dump({"updated": now.strftime("%Y.%m"), "start": f"{START_YEAR}-01",
+               "gus": [{"code": g, "name": n} for g, n in GU.items()]},
+              open("data/index.json", "w", encoding="utf-8"), ensure_ascii=False)
+    print("data/ 저장 완료")
 
 
 if __name__ == "__main__":
