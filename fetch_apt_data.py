@@ -1,7 +1,7 @@
 """국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json
 GitHub Actions에서 매일 자동 실행됩니다. 로컬 실행: export DATA_GO_KR_KEY="인증키(Decoding)" 후 python fetch_apt_data.py
 """
-import os, json, time, datetime, urllib.parse, urllib.request, urllib.error
+import os, re, json, time, datetime, urllib.parse, urllib.request, urllib.error
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
@@ -22,6 +22,9 @@ GU = {  # 서울 25개 구 (시군구 코드)
 }
 START_YEAR = 2020   # 시작 연도. 나중에 줄이면(예: 2016) 빠진 달만 추가로 받아요
 MIN_TRADES = 5      # 이 건수보다 적게 거래된 단지는 제외
+HH_LIST = "AptListService3/getSigunguAptList3"        # 공동주택 단지 목록 (단지코드)
+HH_INFO = "AptBasisInfoServiceV4/getAphusBassInfoV4"  # 공동주택 기본정보 (세대수)
+HH = {"ok": True, "any": False}
 CACHE = "rowcache"
 
 
@@ -95,6 +98,70 @@ def fetch(kind, gu, ym):
     return rows
 
 
+def kapt_call(op, **p):
+    q = urllib.parse.urlencode({"serviceKey": KEY, **p})
+    req = urllib.request.Request(f"{BASE}{op}?{q}", headers={"User-Agent": "Mozilla/5.0"})
+    for attempt in range(4):
+        try:
+            root = ET.fromstring(urllib.request.urlopen(req, timeout=30).read())
+        except (urllib.error.URLError, TimeoutError, ET.ParseError):
+            if attempt == 3:
+                raise
+            time.sleep(3)
+            continue
+        err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
+        if "PER_SECOND" in err and attempt < 3:
+            time.sleep(3)
+            continue
+        if "EXCEEDS" in err:
+            raise Quota()
+        if err:
+            raise RuntimeError(err)
+        return root
+
+
+def households(gu):  # K-apt 단지별 세대수. 구마다 한 번만 받아 저장해 둠
+    path = f"{CACHE}/hh_{gu}.json"
+    if os.path.exists(path):
+        return json.load(open(path, encoding="utf-8"))
+    items, page = [], 1
+    while True:
+        root = kapt_call(HH_LIST, sigunguCode=gu, pageNo=page, numOfRows=1000)
+        items += [{c.tag: (c.text or "").strip() for c in it} for it in root.findall(".//item")]
+        if page * 1000 >= int(root.findtext(".//totalCount") or 0):
+            break
+        page += 1
+    out = []
+    for it in items:
+        h = kapt_call(HH_INFO, kaptCode=it.get("kaptCode", "")).findtext(".//kaptdaCnt")
+        out.append([it.get("kaptName", ""), it.get("as3", ""), int(float(h)) if h else 0])
+        time.sleep(0.1)
+    os.makedirs(CACHE, exist_ok=True)
+    json.dump(out, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    return out
+
+
+def norm(s):
+    return re.sub(r"\(.*?\)|[\s·\-_.,]|아파트", "", s)
+
+
+def match(cs, hh):  # 실거래 단지명과 K-apt 단지명을 맞춰 세대수를 채움
+    by_dn = {(norm(n), d): h for n, d, h in hh}
+    by_n = defaultdict(set)
+    for n, d, h in hh:
+        by_n[norm(n)].add(h)
+    for c in cs:
+        nm, dg = norm(c["_nm"]), c["_dg"]
+        h = by_dn.get((nm, dg))
+        if h is None and len(by_n.get(nm, ())) == 1:
+            h = next(iter(by_n[nm]))
+        if h is None:  # 이름이 서로 포함되는 경우 (같은 동 또는 동 정보 없음), 후보가 하나일 때만
+            cand = {hv for (n, d), hv in by_dn.items()
+                    if min(len(nm), len(n)) >= 3 and (nm in n or n in nm) and (d == dg or not d)}
+            h = next(iter(cand)) if len(cand) == 1 else None
+        c["h"] = h or 0
+
+
 def build(gname, rows_by_idx, M):
     acc = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))  # (단지,동) -> (유형,면적) -> 월인덱스 -> [가격]
     year = {}
@@ -110,6 +177,7 @@ def build(gname, rows_by_idx, M):
         if sum(len(v) for d in series.values() for v in d.values()) < MIN_TRADES:
             continue
         c = {"n": name if names[name] == 1 else f"{name}({dong})", "y": year[(name, dong)],
+             "h": 0, "_nm": name, "_dg": dong,
              "sale": {}, "rent": {}, "cnt": {"sale": {}, "rent": {}}}
         for (kind, b), d in series.items():
             c[kind][b] = [round(sum(d[i]) / len(d[i]), 2) if i in d else None for i in range(M)]
@@ -131,14 +199,22 @@ def main():
                 for kind in API:
                     rows += [(idx, kind, r) for r in fetch(kind, gu, f"{y}{m:02d}")]
             result[gu] = build(gname, rows, M)
+            if HH["ok"]:
+                try:
+                    match(result[gu], households(gu))
+                    HH["any"] = True
+                except Exception as e:  # 세대수를 못 가져와도 나머지 데이터는 정상 저장
+                    HH["ok"] = False
+                    print("세대수 정보를 가져오지 못했어요:", repr(e)[:200], flush=True)
             print("완료:", gname, len(result[gu]), "개 단지", flush=True)
     except Quota:
         print("일일 호출 한도에 도달했어요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
         return
     for gu, cs in result.items():
+        cs = [{k: v for k, v in c.items() if not k.startswith("_")} for c in cs]
         json.dump({"gu": GU[gu], "complexes": cs}, open(f"data/{gu}.json", "w", encoding="utf-8"),
                   ensure_ascii=False, separators=(",", ":"))
-    json.dump({"updated": now.strftime("%Y.%m"), "start": f"{START_YEAR}-01",
+    json.dump({"updated": now.strftime("%Y.%m"), "start": f"{START_YEAR}-01", "households": HH["ok"] and HH["any"],
                "gus": [{"code": g, "name": n} for g, n in GU.items()]},
               open("data/index.json", "w", encoding="utf-8"), ensure_ascii=False)
     print("data/ 저장 완료")
