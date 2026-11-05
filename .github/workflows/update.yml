@@ -5,20 +5,35 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: update-apt-data
+  cancel-in-progress: false
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/cache/restore@v4
+        with:
+          path: rowcache
+          key: apt-cache-${{ github.run_id }}
+          restore-keys: apt-cache-
       - run: python fetch_apt_data.py
         env:
           DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: rowcache
+          key: apt-cache-${{ github.run_id }}
       - run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add apt-data.json cache
+          git add data
           git commit -m "update data" || echo "no changes"
+          git pull --rebase
           git push
