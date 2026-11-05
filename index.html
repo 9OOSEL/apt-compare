@@ -181,7 +181,9 @@ function chart(hit){
  var g="",v,k,ys=CH.r==="all"?3:CH.r==="10"?2:1;
  for(v=y0;v<=ym+1e-9;v+=step)g+='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'"/><text x="'+(L-4)+'" y="'+(Y(v)+3)+'" text-anchor="end">'+(v?(v%1?v.toFixed(1):v)+"억":"0")+'</text>';
  for(k=st;k<250;k++)if(k%12===0&&(k/12)%ys===0)g+='<text x="'+X(k-st)+'" y="'+(H-6)+'" text-anchor="middle">'+(2006+k/12)+'</text>';
- ids.forEach(function(i,j){if(HID[i])return;var pts=[],q;for(q=st;q<250;q++)if(data[j][q]!=null)pts.push(X(q-st).toFixed(1)+","+Y(data[j][q]).toFixed(1));g+='<polyline fill="none" stroke="'+C[j]+'" stroke-width="'+(j?1.6:2.4)+'" stroke-linejoin="round" points="'+pts.join(" ")+'"/>'});
+ ids.forEach(function(i,j){if(HID[i])return;var pts=[],q,vv=vol(i);for(q=st;q<250;q++)if(vv[q]>0&&data[j][q]!=null)pts.push(X(q-st).toFixed(1)+","+Y(data[j][q]).toFixed(1));g+='<polyline fill="none" stroke="'+C[j]+'" stroke-width="'+(j?1.6:2.4)+'" stroke-linejoin="round" points="'+pts.join(" ")+'"/>'});
+ var rr=N>150?1.3:N>60?1.8:2.4;
+ ids.forEach(function(i,j){if(HID[i])return;var vv=vol(i),q;for(q=st;q<250;q++)if(vv[q]>0&&data[j][q]!=null)g+='<circle cx="'+X(q-st).toFixed(1)+'" cy="'+Y(data[j][q]).toFixed(1)+'" r="'+rr+'" fill="'+C[j]+'"/>'});
  g+='<line id="cx" x1="0" x2="0" y1="'+T+'" y2="'+(T+ph)+'" style="display:none"/>';
  var sv=$("ch");sv.innerHTML=g;
  function show(k){k=Math.max(0,Math.min(N-1,k));var kk=k+st,x=X(k),c=$("cx"),mo=kk%12+1;c.setAttribute("x1",x);c.setAttribute("x2",x);c.style.display="";
