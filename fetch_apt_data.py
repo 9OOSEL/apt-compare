@@ -194,7 +194,7 @@ def build(gname, rows_by_idx, M):
         if not series:
             continue
         c = {"n": name if names[name] == 1 else f"{name}({dong})", "y": year[(name, dong)],
-             "h": 0, "_nm": name, "_dg": dong,
+             "h": 0, "dg": dong, "_nm": name, "_dg": dong,
              "sale": {}, "rent": {}, "cnt": {"sale": {}, "rent": {}}}
         for (kind, b), d in series.items():
             c[kind][b] = [round(sum(d[i]) / len(d[i]), 2) if i in d else None for i in range(M)]
