@@ -32,6 +32,13 @@ class Quota(Exception):
     pass
 
 
+class NetDown(Exception):  # 공공데이터포털 서버가 계속 응답하지 않을 때
+    pass
+
+
+TRIES = 6
+
+
 def bucket(area):  # 전용면적을 정수(㎡)로 묶음: 84.88 -> "84", 59.97 -> "59"
     a = float(area or 0)
     return str(int(a)) if a >= 20 else None
@@ -66,20 +73,20 @@ def fetch(kind, gu, ym):
         q = urllib.parse.urlencode({"serviceKey": KEY, "LAWD_CD": gu, "DEAL_YMD": ym,
                                     "pageNo": page, "numOfRows": 1000})
         req = urllib.request.Request(f"{BASE}{API[kind]}?{q}", headers={"User-Agent": "Mozilla/5.0"})
-        for attempt in range(4):
+        for attempt in range(TRIES):
             try:
-                root = ET.fromstring(urllib.request.urlopen(req, timeout=30).read())
+                root = ET.fromstring(urllib.request.urlopen(req, timeout=60).read())
             except urllib.error.HTTPError as e:
                 if e.code == 429:
                     raise Quota()
                 raise SystemExit(f"[{kind} {gu} {ym}] HTTP {e.code} {e.reason}: {e.read()[:300]!r}")
             except (urllib.error.URLError, TimeoutError, ET.ParseError):
-                if attempt == 3:
-                    raise
-                time.sleep(3)
+                if attempt == TRIES - 1:
+                    raise NetDown()
+                time.sleep(5 * (attempt + 1))
                 continue
             err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
-            if "PER_SECOND" in err and attempt < 3:
+            if "PER_SECOND" in err and attempt < TRIES - 1:
                 time.sleep(3)
                 continue
             if "EXCEEDS" in err:
@@ -103,16 +110,16 @@ def fetch(kind, gu, ym):
 def kapt_call(op, **p):
     q = urllib.parse.urlencode({"serviceKey": KEY, **p})
     req = urllib.request.Request(f"{BASE}{op}?{q}", headers={"User-Agent": "Mozilla/5.0"})
-    for attempt in range(4):
+    for attempt in range(TRIES):
         try:
-            root = ET.fromstring(urllib.request.urlopen(req, timeout=30).read())
+            root = ET.fromstring(urllib.request.urlopen(req, timeout=60).read())
         except (urllib.error.URLError, TimeoutError, ET.ParseError):
-            if attempt == 3:
-                raise
-            time.sleep(3)
+            if attempt == TRIES - 1:
+                raise NetDown()
+            time.sleep(5 * (attempt + 1))
             continue
         err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
-        if "PER_SECOND" in err and attempt < 3:
+        if "PER_SECOND" in err and attempt < TRIES - 1:
             time.sleep(3)
             continue
         if "EXCEEDS" in err:
@@ -220,12 +227,17 @@ def main():
                 try:
                     match(result[gu], households(gu))
                     HH["any"] = True
+                except (Quota, NetDown):
+                    raise
                 except Exception as e:  # 세대수를 못 가져와도 나머지 데이터는 정상 저장
                     HH["ok"] = False
                     print("세대수 정보를 가져오지 못했어요:", repr(e)[:200], flush=True)
             print("완료:", gname, len(result[gu]), "개 단지", flush=True)
     except Quota:
         print("일일 호출 한도에 도달했어요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
+        return
+    except NetDown:
+        print("공공데이터포털 서버가 응답하지 않아요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
         return
     for gu, cs in result.items():
         cs = [{k: v for k, v in c.items() if not k.startswith("_")} for c in cs]
