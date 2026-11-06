@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>쌍둥이 단지 찾기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef2f6;--surface:#fff;--ink:#13243a;--sub:#5b6b7e;--line:#d6dde6;--accent:#1d5fd6;--band:#cfe0fb;--dot:#9fb0c4;--up:#c2410c;--down:#0f766e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1623;--surface:#16212f;--ink:#e8eef6;--sub:#93a3b8;--line:#2a3a4e;--accent:#6ea0ff;--band:#1f3556;--dot:#4d6079;--up:#fb923c;--down:#2dd4bf}}
+:root[data-theme="dark"]{--bg:#0e1623;--surface:#16212f;--ink:#e8eef6;--sub:#93a3b8;--line:#2a3a4e;--accent:#6ea0ff;--band:#1f3556;--dot:#4d6079;--up:#fb923c;--down:#2dd4bf}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;line-height:1.5}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em}
+.note{font-size:12.5px;color:var(--sub);margin:0 0 18px}
+label.f{display:block;font-size:13px;color:var(--sub);margin:14px 0 6px}
+select{width:100%;font:inherit;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{flex:1;font:inherit;font-size:15px;padding:11px;border:0;background:none;color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff;font-weight:500}
+.row{display:flex;justify-content:space-between;align-items:baseline}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;margin-top:14px}
+.chk input{width:18px;height:18px;accent-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.base{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+.base .big{font-size:30px;font-weight:700;letter-spacing:-.02em}
+.base .sm{font-size:13px;color:var(--sub)}
+.ruler{position:relative;height:46px;margin:16px 4px 6px}
+.track{position:absolute;left:0;right:0;top:20px;height:2px;background:var(--line)}
+.bandbox{position:absolute;top:12px;height:18px;background:var(--band);border-radius:3px}
+.dot{position:absolute;top:15px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--dot)}
+.dot.in{background:var(--accent)}
+.me{position:absolute;top:6px;width:3px;height:30px;margin-left:-1.5px;background:var(--ink);border-radius:2px}
+.lbl{position:absolute;top:34px;font-size:11px;color:var(--sub);transform:translateX(-50%);white-space:nowrap}
+.cnt{font-size:14px;margin:18px 0 4px;font-weight:500;cursor:pointer}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+li .n{font-weight:500;font-size:16px}
+li .m{font-size:12.5px;color:var(--sub)}
+li .r{text-align:right;white-space:nowrap}
+li .p{font-weight:700;font-size:16px}
+.d{font-size:12.5px;font-weight:500}.d.up{color:var(--up)}.d.dn{color:var(--down)}
+.empty{padding:22px 0;color:var(--sub);font-size:14px}
+.ch{margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
+.ch h2{font-size:17px;margin:0 0 10px;font-weight:700}
+#ch{width:100%;height:auto;display:block;touch-action:pan-y;margin-top:10px}
+#ch text{font-size:10px;fill:var(--sub)}
+#ch .gl{stroke:var(--line);stroke-width:1}
+#ch #cx{stroke:var(--sub);stroke-width:1;stroke-dasharray:3 3}
+.leg{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chip{font:inherit;font-size:13px;display:inline-flex;gap:6px;align-items:center;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer}
+.chip i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.chip.off{opacity:.45;text-decoration:line-through}
+.rd{font-size:12.5px;color:var(--sub);margin-top:8px;min-height:44px}
+#vc{width:100%;height:auto;display:block;margin-top:4px}
+#vc text{font-size:10px;fill:var(--sub)}
+#vc .gl{stroke:var(--line);stroke-width:1}
+</style>
+</head>
+<body>
+<main>
+<h1>쌍둥이 단지 찾기</h1>
+<p class="note" id="note">샘플 데이터로 만든 시제품이에요. 단지명과 가격은 가상이며, 실제 API를 연결하면 진짜 실거래가로 바뀝니다.</p>
+
+<label class="f" for="gu">구 선택</label>
+<select id="gu"></select>
+<label class="f" for="base">기준 단지</label>
+<select id="base"></select>
+
+<label class="f">전용면적</label>
+<div class="seg" id="area">
+  <button data-a="59" aria-pressed="true">59㎡</button>
+  <button data-a="84" aria-pressed="false">84㎡</button>
+</div>
+
+<label class="f">거래 유형</label>
+<div class="seg" id="tp"><button data-t="sale" aria-pressed="true">매매</button><button data-t="rent" aria-pressed="false">전세</button></div>
+
+<label class="f row" for="tol"><span id="tll">가격 차이 허용 범위</span><span id="tolv"></span></label>
+<input type="range" id="tol" min="5" max="50" step="5" value="10">
+
+<label class="f" for="cgu">비교할 구 (결과에 보여줄 구)</label>
+<select id="cgu"></select>
+
+<label class="f" for="mh">단지 규모</label>
+<select id="mh"><option value="400">400세대 이상</option><option value="0">전체</option></select>
+
+<label class="f" for="sm">유사도 기준</label>
+<select id="sm"><option value="both">가격과 추이 모두 비슷</option><option value="trend">추이만 비슷 (가격 차이 허용)</option></select>
+
+<section class="base" aria-live="polite">
+  <div class="sm" id="bname"></div>
+  <div class="big" id="bprice"></div>
+  <div class="ruler" id="ruler"></div>
+  <details id="twins"><summary class="cnt" id="cnt"></summary>
+  <ul id="list"></ul></details>
+</section>
+<section class="ch">
+<h2>가격 추이 비교 <span id="tag">(샘플)</span></h2>
+<div class="seg" id="rng"><button data-r="all" aria-pressed="true">전체</button><button data-r="10" aria-pressed="false">최근 10년</button><button data-r="3" aria-pressed="false">최근 3년</button></div>
+<div class="leg" id="leg"></div>
+<svg id="ch" viewBox="0 0 360 230" role="img" aria-label="단지별 매매가 추이 그래프"></svg>
+<div class="rd" id="rd"></div>
+<div class="rd" id="vt" style="min-height:0;margin-top:14px"></div>
+<svg id="vc" viewBox="0 0 360 96" role="img" aria-label="단지별 거래량 막대그래프"></svg>
+</section>
+</main>
+
+<script>
+var D=[
+{n:"가온마을",gu:"중구",y:2003,h:1280,p59:9.2,p84:12.4,d:"2026.10"},
+{n:"다솜힐스",gu:"성동구",y:2008,h:960,p59:9.8,p84:13.1,d:"2026.10"},
+{n:"한울 리버뷰",gu:"성동구",y:2015,h:1520,p59:11.6,p84:15.8,d:"2026.09"},
+{n:"새롬마을 2단지",gu:"동대문구",y:2001,h:1100,p59:7.4,p84:10.2,d:"2026.10"},
+{n:"청솔타운",gu:"동대문구",y:2012,h:780,p59:8.9,p84:12.0,d:"2026.08"},
+{n:"미래빌",gu:"광진구",y:2005,h:1340,p59:9.5,p84:12.9,d:"2026.10"},
+{n:"그린파크",gu:"광진구",y:2018,h:610,p59:11.0,p84:14.6,d:"2026.09"},
+{n:"하늘채 센트럴",gu:"중구",y:2019,h:890,p59:11.9,p84:16.2,d:"2026.10"},
+{n:"송이마을",gu:"마포구",y:2000,h:1450,p59:8.6,p84:11.8,d:"2026.07"},
+{n:"모아 리버파크",gu:"마포구",y:2016,h:1010,p59:11.2,p84:15.1,d:"2026.10"},
+{n:"별빛 아이움",gu:"용산구",y:2010,h:540,p59:12.4,p84:17.0,d:"2026.09"},
+{n:"단비 e편한",gu:"성북구",y:2014,h:1230,p59:8.1,p84:11.0,d:"2026.10"},
+{n:"우리빛 1차",gu:"성북구",y:2002,h:830,p59:6.9,p84:9.4,d:"2026.08"},
+{n:"소담 래미안",gu:"강동구",y:2011,h:1890,p59:9.1,p84:12.2,d:"2026.10"},
+{n:"푸른언덕",gu:"강동구",y:2020,h:720,p59:10.9,p84:14.4,d:"2026.09"},
+{n:"로뎀 프레스티지",gu:"중랑구",y:2017,h:660,p59:7.7,p84:10.5,d:"2026.10"}
+];
+var S={b:0,a:59,t:10,cg:"all",mh:400,sm:"both",tp:"sale"},IDX=null,LOADED={};
+function cur(i){var d=D[i];if(d.c){var a=(d.c[S.tp]&&d.c[S.tp][S.a])||[],q;for(q=a.length-1;q>=0;q--)if(a[q]!=null)return a[q];return 0}return d["p"+S.a]*(S.tp==="rent"?.5+(i*37%17)/100:1)}
+function fmt(p){var m=Math.round(p*10000),e=Math.floor(m/10000),r=m%10000;return e+"억"+(r?" "+r.toLocaleString("ko-KR")+"만":"")}
+var $=function(i){return document.getElementById(i)};
+var sel=$("base");
+fillGu();fillSel();
+function render(){
+  var b=D[S.b];if(!b){$("bprice").textContent="데이터 없음";return}var bp=cur(S.b);
+  $("tolv").textContent="±"+S.t+"%";$("tll").textContent=S.sm==="trend"?"현재 가격 차이 허용 범위":"기간 중 가격 차이 허용 범위";
+  $("bname").textContent=b.n+" · "+b.gu+" · "+S.a+"㎡ "+(S.tp==="rent"?"전세":"매매")+" · 최근 "+b.d;
+  if(!bp){$("bprice").textContent="거래 데이터 없음";$("ruler").innerHTML="";$("cnt").textContent="";$("list").innerHTML='<li class="empty">이 면적·유형의 거래가 없어요. 다른 조건을 선택해 보세요.</li>';chart([]);return}
+  $("bprice").textContent=fmt(bp);
+  var all=D.map(function(d,i){return{d:d,i:i,p:cur(i),df:(cur(i)-bp)/bp*100}}).filter(function(x){return x.p&&x.i!==S.b&&cgOK(x.d,b)&&hOK(x.d)});
+  var bs=smo(S.b),hit=all.filter(function(x){if(Math.abs(x.df)>(S.sm==="trend"?S.t:S.t*3))return false;var r=sim(bs,x.i);if(!r||r.s<50)return false;if(S.sm==="both"&&r.g>S.t/100)return false;x.sim=r.s;return true}).sort(function(a,c){return c.sim-a.sim}),tot=hit.length;
+  hit=hit.slice(0,20);hit.forEach(function(x){x.h=1});
+  var rg=(S.t+10)/100,lo=bp*(1-rg),hi=bp*(1+rg),pos=function(p){return Math.max(0,Math.min(100,(p-lo)/(hi-lo)*100))};
+  var h='<div class="track"></div><div class="bandbox" style="left:'+pos(bp*(1-S.t/100))+'%;width:'+(pos(bp*(1+S.t/100))-pos(bp*(1-S.t/100)))+'%"></div>';
+  all.forEach(function(x){if(Math.abs(x.df)>S.t+10)return;h+='<div class="dot'+(x.h?' in':'')+'" style="left:'+pos(x.p)+'%"></div>'});
+  h+='<div class="me" style="left:50%"></div><div class="lbl" style="left:0%;transform:none">'+fmt(lo)+'</div><div class="lbl" style="left:100%;transform:translateX(-100%)">'+fmt(hi)+'</div>';
+  $("ruler").innerHTML=h;
+  $("cnt").textContent="쌍둥이 단지 "+hit.length+"곳"+(tot>hit.length?" (후보 "+tot+"곳 중 유사도 상위)":" · 유사도순");
+  $("list").innerHTML=hit.length?hit.map(function(x){
+    var s=x.df>=0?"+":"",c=x.df>=0?"up":"dn";
+    return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · "+x.d.h.toLocaleString("ko-KR")+"세대":"")+" · "+(S.sm==="trend"?"추이":"가격·추이")+" 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
+  }).join(""):'<li class="empty">이 범위에 맞는 단지가 없어요. 허용 범위를 넓히거나 구 제한을 풀어 보세요.</li>';
+chart(hit);
+}
+var CH={r:"all",hit:[]},HID={},VON=true;
+function mulb(s){return function(){s|=0;s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var KF=[[2006,.18],[2009,.25],[2012,.24],[2015,.26],[2018,.33],[2020,.5],[2021.6,.82],[2022.7,.58],[2023.7,.62],[2024.6,.68],[2025.5,.85],[2026.8,1]];
+function mk(t){for(var i=1;i<KF.length;i++)if(t<=KF[i][0]){var a=KF[i-1],b=KF[i];return a[1]+(b[1]-a[1])*(t-a[0])/(b[0]-a[0])}return 1}
+function ser(i){if(D[i].c)return place(D[i].c[S.tp]&&D[i].c[S.tp][S.a],1);var p=cur(i),r=mulb(i*977+S.a+(S.tp==="rent"?5:0)),tilt=(r()-.5)*.3,out=[],k,m,n;
+ for(k=0;k<250;k++){m=mk(2006+k/12);n=1+(r()-.5)*.07*(k>150?1.6:1);if(k===249){m=1;n=1}out.push(p*m*(1+tilt*(1-m))*n)}
+ return out}
+function vol(i){var d=D[i];if(d.c)return place(d.c.cnt&&d.c.cnt[S.tp]&&d.c.cnt[S.tp][S.a],0);var r=mulb(i*131+S.a+(S.tp==="rent"?9:0)),a=[],k,t,v;for(k=0;k<250;k++){t=2006+k/12;v=1+1.6*Math.exp(-Math.pow((t-2021)/.8,2))-.6*Math.exp(-Math.pow((t-2022.8)/.7,2));a.push(Math.max(0,Math.round(d.h/200*v*(.6+r()*.8))))}return a}
+function vbars(ids,C,st,N,W,L,pw){
+ var sv=$("vc"),vt=$("vt");sv.style.display=VON?"":"none";vt.textContent="";if(!VON)return;
+ var bk=N>150?6:N>60?3:1,nb=Math.ceil(N/bk),H=96,T=6,B=18,ph=H-T-B,rows=[],mx=4,g="",b,k,s,ys=CH.r==="all"?3:CH.r==="10"?2:1;
+ ids.forEach(function(i,j){if(HID[i])return;var a=vol(i),o=[];for(b=0;b<nb;b++){s=0;for(k=st+b*bk;k<Math.min(250,st+(b+1)*bk);k++)s+=a[k]||0;o.push(s);if(s>mx)mx=s}rows.push({j:j,o:o})});
+ var ym=Math.ceil(mx/4)*4,bw=pw*bk/N,ew=bw*.8/Math.max(1,rows.length);
+ g+='<line class="gl" x1="'+L+'" x2="'+(W-8)+'" y1="'+(T+ph)+'" y2="'+(T+ph)+'"/><line class="gl" x1="'+L+'" x2="'+(W-8)+'" y1="'+T+'" y2="'+T+'"/><text x="'+(L-4)+'" y="'+(T+3)+'" text-anchor="end">'+ym+'</text><text x="'+(L-4)+'" y="'+(T+ph+3)+'" text-anchor="end">0</text>';
+ rows.forEach(function(rw,idx){rw.o.forEach(function(s,b){var h=ph*s/ym;g+='<rect x="'+(L+b*bw+bw*.1+idx*ew).toFixed(1)+'" y="'+(T+ph-h).toFixed(1)+'" width="'+Math.max(ew-.3,.6).toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+C[rw.j]+'"/>'})});
+ for(k=st;k<250;k++)if(k%12===0&&(k/12)%ys===0)g+='<text x="'+(L+pw*(k-st)/N)+'" y="'+(H-4)+'" text-anchor="middle">'+(2006+k/12)+'</text>';
+ sv.innerHTML=g;vt.textContent="거래량 (건, "+(bk===1?"월별":bk+"개월 합계")+")";
+}
+function chart(hit){
+ CH.hit=hit;
+ var ids=[S.b].concat(hit.slice(0,4).map(function(x){return x.i})),C=["#1d5fd6","#e0522b","#0f9d7a","#a855c7","#c9962b"];
+ var st=CH.r==="3"?214:CH.r==="10"?130:0,N=250-st,W=360,H=230,L=36,R=8,T=10,B=24,pw=W-L-R,ph=H-T-B;
+ var data=ids.map(function(i){return ser(i)}),mx=0,mn=1e9;
+ ids.forEach(function(i,j){if(HID[i])return;data[j].slice(st).forEach(function(v){if(v==null)return;if(v>mx)mx=v;if(v<mn)mn=v})});
+ if(!mx){mx=1;mn=0}
+ var lo=CH.r==="all"?0:mn*.95,sp=mx-lo,step=sp>12?4:sp>6?2:sp>3?1:.5,y0=Math.floor(lo/step)*step,ym=Math.ceil(mx/step)*step;
+ var X=function(k){return L+pw*k/(N-1)},Y=function(v){return T+ph*(1-(v-y0)/(ym-y0))};
+ var g="",v,k,ys=CH.r==="all"?3:CH.r==="10"?2:1;
+ for(v=y0;v<=ym+1e-9;v+=step)g+='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v)+'" y2="'+Y(v)+'"/><text x="'+(L-4)+'" y="'+(Y(v)+3)+'" text-anchor="end">'+(v?(v%1?v.toFixed(1):v)+"억":"0")+'</text>';
+ for(k=st;k<250;k++)if(k%12===0&&(k/12)%ys===0)g+='<text x="'+X(k-st)+'" y="'+(H-6)+'" text-anchor="middle">'+(2006+k/12)+'</text>';
+ ids.forEach(function(i,j){if(HID[i])return;var pts=[],q,vv=vol(i);for(q=st;q<250;q++)if(vv[q]>0&&data[j][q]!=null)pts.push(X(q-st).toFixed(1)+","+Y(data[j][q]).toFixed(1));g+='<polyline fill="none" stroke="'+C[j]+'" stroke-width="'+(j?1.6:2.4)+'" stroke-linejoin="round" points="'+pts.join(" ")+'"/>'});
+ var rr=N>150?1.3:N>60?1.8:2.4;
+ ids.forEach(function(i,j){if(HID[i])return;var vv=vol(i),q;for(q=st;q<250;q++)if(vv[q]>0&&data[j][q]!=null)g+='<circle cx="'+X(q-st).toFixed(1)+'" cy="'+Y(data[j][q]).toFixed(1)+'" r="'+rr+'" fill="'+C[j]+'"/>'});
+ g+='<line id="cx" x1="0" x2="0" y1="'+T+'" y2="'+(T+ph)+'" style="display:none"/>';
+ var sv=$("ch");sv.innerHTML=g;
+ function show(k){k=Math.max(0,Math.min(N-1,k));var kk=k+st,x=X(k),c=$("cx"),mo=kk%12+1;c.setAttribute("x1",x);c.setAttribute("x2",x);c.style.display="";
+  $("rd").innerHTML=(2006+Math.floor(kk/12))+"."+(mo<10?"0":"")+mo+"<br>"+ids.map(function(i,j){return HID[i]?"":'<span style="color:'+C[j]+'">■</span> '+D[i].n+" "+(data[j][kk]==null?"-":fmt(data[j][kk]))}).filter(Boolean).join(" · ")}
+ sv.onpointermove=function(e){var b=sv.getBoundingClientRect();show(Math.round(((e.clientX-b.left)/b.width*W-L)/pw*(N-1)))};
+ show(N-1);
+ vbars(ids,C,st,N,W,L,pw);
+ $("leg").innerHTML=ids.map(function(i,j){return '<button class="chip'+(HID[i]?' off':'')+'" data-i="'+i+'"><i style="background:'+C[j]+'"></i>'+D[i].n+(i===S.b?'':' ✕')+'</button>'}).join("");
+}
+$("leg").onclick=function(e){var b=e.target.closest("button");if(!b)return;var i=+b.dataset.i;if(i===S.b)return;HID[i]=!HID[i];chart(CH.hit)};
+Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(btn){btn.onclick=function(){CH.r=btn.dataset.r;Array.prototype.forEach.call(document.querySelectorAll("#rng button"),function(x){x.setAttribute("aria-pressed",x===btn?"true":"false")});chart(CH.hit)}});
+sel.onchange=function(){S.b=+sel.value;HID={};render()};
+$("tol").oninput=function(e){S.t=+e.target.value;render()};
+Array.prototype.forEach.call(document.querySelectorAll("#area button"),function(btn){
+  btn.onclick=function(){S.a=+btn.dataset.a;Array.prototype.forEach.call(document.querySelectorAll("#area button"),function(x){x.setAttribute("aria-pressed",x===btn?"true":"false")});render()}
+});
+Array.prototype.forEach.call(document.querySelectorAll("#tp button"),function(btn){btn.onclick=function(){S.tp=btn.dataset.t;Array.prototype.forEach.call(document.querySelectorAll("#tp button"),function(x){x.setAttribute("aria-pressed",x===btn?"true":"false")});render()}});
+var SAMPLE_NOTE=$("note").textContent;
+function setNote(){$("note").textContent=IDX?"실거래가 "+IDX.updated+" 기준 · 불러온 단지 "+D.length.toLocaleString("ko-KR")+"개":SAMPLE_NOTE}
+function place(a,fill){var o=[],k,v,last=null,off=IDX?IDX.off:0;for(k=0;k<250;k++){v=a&&k>=off&&k-off<a.length?a[k-off]:null;if(fill){if(v!=null)last=v;o.push(last)}else o.push(v||0)}return o}
+var SM={};
+function smo(i){var k=i+"|"+S.tp+"|"+S.a;if(SM[k])return SM[k];var a=ser(i),o=[],q,s,n,j;
+ for(q=0;q<250;q++){if(a[q]==null){o.push(null);continue}s=0;n=0;for(j=q-2;j<=q;j++)if(j>=0&&a[j]!=null){s+=a[j];n++}o.push(s/n)}
+ return SM[k]=o}
+function sim(bs,i){var vv=vol(i),n=0,q,k,d,s=0,b0=0,c0=0,idx=[],gp=[];for(q=0;q<250;q++)if(vv[q]>0)n++;if(n<12)return null;
+ var cs=smo(i);for(q=0;q<250;q++)if(bs[q]!=null&&cs[q]!=null)idx.push(q);if(idx.length<24)return null;
+ if(S.sm==="trend"){for(k=0;k<3;k++){b0+=bs[idx[k]];c0+=cs[idx[k]]}b0/=3;c0/=3}else{b0=1;c0=1}
+ for(k=0;k<idx.length;k++){d=Math.log((cs[idx[k]]/c0)/(bs[idx[k]]/b0));s+=d*d;gp.push(Math.abs(Math.log(cs[idx[k]]/bs[idx[k]])))}
+ gp.sort(function(a,b){return a-b});
+ return{s:Math.round(Math.max(0,1-Math.sqrt(s/idx.length)/(S.sm==="trend"?.25:.2))*100),g:gp[gp.length>>1]}}
+function hOK(d){return !S.mh||(d.h||0)>=S.mh}
+function cgOK(d,b){return S.cg==="all"||(S.cg==="same"?d.gu===b.gu:d.gu===S.cg)}
+function fillGu(){var names=IDX?IDX.gus.map(function(g){return g.name}):D.map(function(d){return d.gu}).filter(function(v,i,a){return a.indexOf(v)===i}).sort();
+ names.sort(function(a,b){return a.localeCompare(b,"ko")});
+ var g=$("gu"),c=$("cgu");g.innerHTML="";c.innerHTML='<option value="all">서울 전체</option><option value="same">기준 단지와 같은 구</option>';
+ names.forEach(function(n){[g,c].forEach(function(s){var o=document.createElement("option");o.value=n;o.textContent=n;s.appendChild(o)})});
+ g.value=names.indexOf("강남구")>=0?"강남구":names[0];c.value=S.cg}
+function fillSel(){var g=$("gu").value,ix=[];D.forEach(function(d,i){if(d.gu===g&&hOK(d))ix.push(i)});
+ ix.sort(function(a,b){return D[a].n.localeCompare(D[b].n,"ko")});sel.innerHTML="";
+ ix.forEach(function(i){var o=document.createElement("option");o.value=i;o.textContent=D[i].n+(D[i].y?" ("+D[i].y+"년)":"");sel.appendChild(o)});S.b=ix.length?ix[0]:0}
+function loadGu(g,cb){var s=LOADED[g.code];if(s===1){cb();return}if(s){s.push(cb);return}LOADED[g.code]=[cb];
+ fetch("data/"+g.code+".json",{cache:"no-cache"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){
+  j.complexes.forEach(function(c){D.push({n:c.n,gu:g.name,y:c.y||0,h:c.h||0,d:IDX.updated,c:c})});var q=LOADED[g.code];LOADED[g.code]=1;q.forEach(function(f){f()})
+ }).catch(function(){var q=LOADED[g.code];LOADED[g.code]=0;$("note").textContent=g.name+" 데이터를 불러오지 못했어요.";q.forEach(function(f){f()})})}
+function loadMany(list,cb){var n=0,t=list.length;if(!t){setNote();cb();return}list.forEach(function(g){loadGu(g,function(){n++;if(n<t)$("note").textContent="불러오는 중 "+n+"/"+t;else{setNote();cb()}})})}
+function needLoad(cb){if(!IDX){cb();return}loadMany(IDX.gus.filter(function(g){return S.cg==="all"||g.name===S.cg}),cb)}
+$("sm").onchange=function(){S.sm=$("sm").value;render()};
+$("mh").onchange=function(){S.mh=+$("mh").value;fillSel();HID={};render()};
+$("cgu").onchange=function(){S.cg=$("cgu").value;needLoad(render)};
+$("gu").onchange=function(){var v=$("gu").value,g=IDX&&IDX.gus.filter(function(x){return x.name===v})[0],go=function(){fillSel();HID={};needLoad(render)};if(g)loadGu(g,go);else go()};
+fetch("data/index.json",{cache:"no-cache"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){
+ IDX=j;if(!j.households){S.mh=0;$("mh").value="0";$("mh").disabled=true;$("mh").options[0].textContent="400세대 이상 (세대수 정보 준비 중)"}IDX.off=(+j.start.slice(0,4)-2006)*12+(+j.start.slice(5,7)-1);D=[];SM={};$("tag").textContent="";fillGu();$("gu").onchange()}).catch(function(){});
+render();
+</script>
+</body>
+</html>
