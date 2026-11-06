@@ -1,7 +1,7 @@
- """국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json #
+"""국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json
 GitHub Actions에서 매일 자동 실행됩니다. 로컬 실행: export DATA_GO_KR_KEY="인증키(Decoding)" 후 python fetch_apt_data.py
 """
-import os, re, json, time, datetime, urllib.parse, urllib.request, urllib.error
+import os, re, sys, json, time, datetime, urllib.parse, urllib.request, urllib.error
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
@@ -37,6 +37,40 @@ class NetDown(Exception):  # 공공데이터포털 서버가 계속 응답하지
 
 
 TRIES = 6
+VERSION = "2026-11-07 구별 저장 + 원인 표시"
+LAST = {"msg": ""}
+
+
+class KaptFail(Exception):  # 세대수(K-apt) 조회 실패. 세대수는 선택 정보라서 전체 실행을 멈추지 않음
+    pass
+
+
+def describe(e):  # 오류를 사람이 읽을 수 있게 설명 (HTTPError는 URLError의 하위 클래스라 먼저 검사)
+    if isinstance(e, urllib.error.HTTPError):
+        return f"HTTP {e.code} {e.reason}"
+    if isinstance(e, urllib.error.URLError):
+        return f"연결 단계에서 응답 없음 ({e.reason}) - 서버가 이 접속을 받지 않아요. 응답 크기와는 무관해요"
+    if isinstance(e, TimeoutError):
+        return "연결은 됐지만 응답을 읽다가 시간 초과"
+    if isinstance(e, ET.ParseError):
+        return "XML이 아닌 응답을 받음"
+    return repr(e)[:120]
+
+
+def preflight():  # 본 작업 전에 공공데이터포털에 닿는지 먼저 확인
+    q = urllib.parse.urlencode({"serviceKey": KEY, "LAWD_CD": "11110", "DEAL_YMD": "202501", "pageNo": 1, "numOfRows": 1})
+    req = urllib.request.Request(f"{BASE}{API['sale']}?{q}", headers={"User-Agent": "Mozilla/5.0"})
+    for attempt in range(3):
+        t0 = time.time()
+        try:
+            root = ET.fromstring(urllib.request.urlopen(req, timeout=30).read())
+            err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
+            print(f"연결 확인: 정상 ({time.time() - t0:.1f}초)" + (f" / 응답 메시지: {err}" if err else ""), flush=True)
+            return True
+        except Exception as e:
+            print(f"연결 확인 {attempt + 1}/3 실패 ({time.time() - t0:.0f}초): {describe(e)}", flush=True)
+            time.sleep(10)
+    return False
 
 
 def bucket(area):  # 전용면적을 정수(㎡)로 묶음: 84.88 -> "84", 59.97 -> "59"
@@ -79,8 +113,15 @@ def fetch(kind, gu, ym):
             except urllib.error.HTTPError as e:
                 if e.code == 429:
                     raise Quota()
+                if e.code >= 500:  # 서버 쪽 일시 오류는 재시도
+                    LAST["msg"] = f"[{kind} {gu} {ym}] {describe(e)}"
+                    if attempt == TRIES - 1:
+                        raise NetDown()
+                    time.sleep(5 * (attempt + 1))
+                    continue
                 raise SystemExit(f"[{kind} {gu} {ym}] HTTP {e.code} {e.reason}: {e.read()[:300]!r}")
-            except (urllib.error.URLError, TimeoutError, ET.ParseError):
+            except (urllib.error.URLError, TimeoutError, ET.ParseError) as e:
+                LAST["msg"] = f"[{kind} {gu} {ym}] {describe(e)}"
                 if attempt == TRIES - 1:
                     raise NetDown()
                 time.sleep(5 * (attempt + 1))
@@ -113,9 +154,16 @@ def kapt_call(op, **p):
     for attempt in range(TRIES):
         try:
             root = ET.fromstring(urllib.request.urlopen(req, timeout=60).read())
-        except (urllib.error.URLError, TimeoutError, ET.ParseError):
+        except urllib.error.HTTPError as e:
+            if e.code >= 500 and attempt < TRIES - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            if e.code == 429:
+                raise KaptFail("호출 한도 초과 (HTTP 429)")
+            raise KaptFail(f"{op.split('/')[0]} HTTP {e.code} {e.reason} (활용신청이 안 됐거나 요청 주소가 달라요)")
+        except (urllib.error.URLError, TimeoutError, ET.ParseError) as e:
             if attempt == TRIES - 1:
-                raise NetDown()
+                raise KaptFail(f"{op.split('/')[0]} {describe(e)}")
             time.sleep(5 * (attempt + 1))
             continue
         err = (root.findtext(".//errMsg") or "") + (root.findtext(".//returnAuthMsg") or "")
@@ -123,9 +171,9 @@ def kapt_call(op, **p):
             time.sleep(3)
             continue
         if "EXCEEDS" in err:
-            raise Quota()
+            raise KaptFail("호출 한도 초과")
         if err:
-            raise RuntimeError(err)
+            raise KaptFail(f"{op.split('/')[0]} API 오류: {err}")
         return root
 
 
@@ -230,6 +278,10 @@ def save_index():
 
 
 def main():
+    print("스크립트 버전:", VERSION, flush=True)
+    if not preflight():
+        print("공공데이터포털에 연결하지 못했어요. 위 '연결 확인' 줄의 원인을 확인하세요. 이번 실행은 실패로 표시해요.")
+        sys.exit(1)
     now = datetime.date.today()
     months = [(y, m) for y in range(START_YEAR, now.year + 1) for m in range(1, 13) if (y, m) <= (now.year, now.month)]
     M = len(months)
@@ -247,18 +299,22 @@ def main():
                 try:
                     match(cs, households(gu))
                     got_hh = True
-                except (Quota, NetDown):
-                    raise
-                except Exception as e:  # 세대수를 못 가져와도 나머지 데이터는 정상 저장
+                except KaptFail as e:  # 세대수를 못 가져와도 실거래가는 정상 저장
                     HH["ok"] = False
-                    print("세대수 정보를 가져오지 못했어요:", repr(e)[:200], flush=True)
+                    print("세대수 정보를 가져오지 못했어요 ->", e, "\n   (실거래가는 세대수 없이 계속 저장해요)", flush=True)
+                except Exception as e:
+                    HH["ok"] = False
+                    print("세대수 처리 중 오류 ->", repr(e)[:200], "\n   (실거래가는 세대수 없이 계속 저장해요)", flush=True)
             save_gu(gu, cs, got_hh)
             done += 1
             print("완료:", gname, len(cs), "개 단지", "(세대수 포함)" if got_hh else "(세대수 없음)", flush=True)
     except Quota:
         print("일일 호출 한도에 도달했어요. 끝낸 구는 저장했고, 다음 실행 때 나머지를 이어서 받아요.")
     except NetDown:
-        print("공공데이터포털 서버가 응답하지 않아요. 끝낸 구는 저장했고, 다음 실행 때 나머지를 이어서 받아요.")
+        print("공공데이터포털 서버가 응답하지 않아요 ->", LAST["msg"], "\n끝낸 구는 저장했고, 다음 실행 때 나머지를 이어서 받아요.")
+    if done == 0:
+        print("이번 실행에서 새로 저장한 구가 없어서 '실패'로 표시해요. 위 메시지가 원인이에요.")
+        sys.exit(1)
     save_index()
     print(f"이번 실행에서 {done}/{len(GU)}개 구를 새로 저장했어요.")
 
