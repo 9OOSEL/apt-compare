@@ -210,43 +210,57 @@ def build(gname, rows_by_idx, M):
     return out
 
 
+def save_gu(gu, cs, with_hh):  # 구 하나가 끝날 때마다 바로 저장 (이후 중단돼도 이 구는 반영됨)
+    cs = [{k: v for k, v in c.items() if not k.startswith("_")} for c in cs]
+    json.dump({"gu": GU[gu], "start": f"{START_YEAR}-01", "hh": with_hh, "complexes": cs},
+              open(f"data/{gu}.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+
+
+def save_index():
+    any_hh = False
+    for gu in GU:
+        try:
+            if json.load(open(f"data/{gu}.json", encoding="utf-8")).get("hh"):
+                any_hh = True
+        except (OSError, ValueError):
+            pass
+    json.dump({"updated": datetime.date.today().strftime("%Y.%m"), "start": f"{START_YEAR}-01", "households": any_hh,
+               "gus": [{"code": g, "name": n} for g, n in GU.items()]},
+              open("data/index.json", "w", encoding="utf-8"), ensure_ascii=False)
+
+
 def main():
     now = datetime.date.today()
     months = [(y, m) for y in range(START_YEAR, now.year + 1) for m in range(1, 13) if (y, m) <= (now.year, now.month)]
     M = len(months)
     os.makedirs("data", exist_ok=True)
-    result = {}
+    done = 0
     try:
         for gu, gname in GU.items():
             rows = []
             for idx, (y, m) in enumerate(months):
                 for kind in API:
                     rows += [(idx, kind, r) for r in fetch(kind, gu, f"{y}{m:02d}")]
-            result[gu] = build(gname, rows, M)
+            cs = build(gname, rows, M)
+            got_hh = False
             if HH["ok"]:
                 try:
-                    match(result[gu], households(gu))
-                    HH["any"] = True
+                    match(cs, households(gu))
+                    got_hh = True
                 except (Quota, NetDown):
                     raise
                 except Exception as e:  # 세대수를 못 가져와도 나머지 데이터는 정상 저장
                     HH["ok"] = False
                     print("세대수 정보를 가져오지 못했어요:", repr(e)[:200], flush=True)
-            print("완료:", gname, len(result[gu]), "개 단지", flush=True)
+            save_gu(gu, cs, got_hh)
+            done += 1
+            print("완료:", gname, len(cs), "개 단지", "(세대수 포함)" if got_hh else "(세대수 없음)", flush=True)
     except Quota:
-        print("일일 호출 한도에 도달했어요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
-        return
+        print("일일 호출 한도에 도달했어요. 끝낸 구는 저장했고, 다음 실행 때 나머지를 이어서 받아요.")
     except NetDown:
-        print("공공데이터포털 서버가 응답하지 않아요. 받은 데이터는 저장해 뒀고, 다음 실행 때 이어서 받아요.")
-        return
-    for gu, cs in result.items():
-        cs = [{k: v for k, v in c.items() if not k.startswith("_")} for c in cs]
-        json.dump({"gu": GU[gu], "complexes": cs}, open(f"data/{gu}.json", "w", encoding="utf-8"),
-                  ensure_ascii=False, separators=(",", ":"))
-    json.dump({"updated": now.strftime("%Y.%m"), "start": f"{START_YEAR}-01", "households": HH["ok"] and HH["any"],
-               "gus": [{"code": g, "name": n} for g, n in GU.items()]},
-              open("data/index.json", "w", encoding="utf-8"), ensure_ascii=False)
-    print("data/ 저장 완료")
+        print("공공데이터포털 서버가 응답하지 않아요. 끝낸 구는 저장했고, 다음 실행 때 나머지를 이어서 받아요.")
+    save_index()
+    print(f"이번 실행에서 {done}/{len(GU)}개 구를 새로 저장했어요.")
 
 
 if __name__ == "__main__":
