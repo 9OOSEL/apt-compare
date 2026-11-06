@@ -20,8 +20,8 @@ GU = {  # 서울 25개 구 (시군구 코드)
     "11500": "강서구", "11530": "구로구", "11545": "금천구", "11560": "영등포구", "11590": "동작구",
     "11620": "관악구", "11650": "서초구", "11680": "강남구", "11710": "송파구", "11740": "강동구",
 }
-START_YEAR = 2010   # 시작 연도. 나중에 줄이면(예: 2016) 빠진 달만 추가로 받아요
-MIN_TRADES = 10      # 이 건수보다 적게 거래된 단지는 제외
+START_YEAR = 2020   # 시작 연도. 나중에 줄이면(예: 2016) 빠진 달만 추가로 받아요
+MIN_TRADES = 12     # 이 건수보다 적게 거래된 (단지, 면적, 유형)은 제외
 HH_LIST = "AptListService3/getSigunguAptList3"        # 공동주택 단지 목록 (단지코드)
 HH_INFO = "AptBasisInfoServiceV4/getAphusBassInfoV4"  # 공동주택 기본정보 (세대수)
 HH = {"ok": True, "any": False}
@@ -32,9 +32,9 @@ class Quota(Exception):
     pass
 
 
-def bucket(area):
+def bucket(area):  # 전용면적을 정수(㎡)로 묶음: 84.88 -> "84", 59.97 -> "59"
     a = float(area or 0)
-    return "59" if 55 <= a < 63 else "84" if 80 <= a < 88 else None
+    return str(int(a)) if a >= 20 else None
 
 
 def parse(kind, r):  # 필요한 항목만 뽑아 작게 저장
@@ -58,7 +58,9 @@ def fetch(kind, gu, ym):
     t = datetime.date.today()
     recent = (t.year * 12 + t.month) - (int(ym[:4]) * 12 + int(ym[4:])) <= 2  # 최근 3개월은 늦은 신고가 있어 매번 새로 받음
     if os.path.exists(path) and not recent:
-        return json.load(open(path, encoding="utf-8"))
+        cached = json.load(open(path, encoding="utf-8"))
+        if isinstance(cached, dict) and cached.get("v") == 2:  # 예전 형식(59/84만 저장)은 다시 받음
+            return cached["rows"]
     rows, page = [], 1
     while True:
         q = urllib.parse.urlencode({"serviceKey": KEY, "LAWD_CD": gu, "DEAL_YMD": ym,
@@ -93,7 +95,7 @@ def fetch(kind, gu, ym):
             break
         page += 1
     os.makedirs(CACHE, exist_ok=True)
-    json.dump(rows, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    json.dump({"v": 2, "rows": rows}, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     time.sleep(0.15)
     return rows
 
@@ -123,7 +125,9 @@ def kapt_call(op, **p):
 def households(gu):  # K-apt 단지별 세대수. 구마다 한 번만 받아 저장해 둠
     path = f"{CACHE}/hh_{gu}.json"
     if os.path.exists(path):
-        return json.load(open(path, encoding="utf-8"))
+        cached = json.load(open(path, encoding="utf-8"))
+        if isinstance(cached, dict) and cached.get("v") == 2:  # 예전 형식(구간별 세대수 없음)은 다시 받음
+            return cached["rows"]
     items, page = [], 1
     while True:
         root = kapt_call(HH_LIST, sigunguCode=gu, pageNo=page, numOfRows=1000)
@@ -131,13 +135,23 @@ def households(gu):  # K-apt 단지별 세대수. 구마다 한 번만 받아 �
         if page * 1000 >= int(root.findtext(".//totalCount") or 0):
             break
         page += 1
+    def num(info, *tags):  # 항목 이름이 조금 달라도 읽도록 여러 이름을 시도
+        for t in tags:
+            v = info.findtext(f".//{t}")
+            if v and v.strip():
+                return int(float(v))
+        return 0
     out = []
     for it in items:
-        h = kapt_call(HH_INFO, kaptCode=it.get("kaptCode", "")).findtext(".//kaptdaCnt")
-        out.append([it.get("kaptName", ""), it.get("as3", ""), int(float(h)) if h else 0])
+        info = kapt_call(HH_INFO, kaptCode=it.get("kaptCode", ""))
+        out.append([it.get("kaptName", ""), it.get("as3", ""), num(info, "kaptdaCnt"),
+                    [num(info, "kaptMparea_60", "kaptMparea60"),      # 60㎡ 이하 세대수
+                     num(info, "kaptMparea_85", "kaptMparea85"),      # 60~85㎡ 세대수
+                     num(info, "kaptMparea_135", "kaptMparea135"),    # 85~135㎡ 세대수
+                     num(info, "kaptdaSize_136", "kaptMparea_136", "kaptMparea136")]])  # 135㎡ 초과
         time.sleep(0.1)
     os.makedirs(CACHE, exist_ok=True)
-    json.dump(out, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    json.dump({"v": 2, "rows": out}, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     return out
 
 
@@ -145,21 +159,23 @@ def norm(s):
     return re.sub(r"\(.*?\)|[\s·\-_.,]|아파트", "", s)
 
 
-def match(cs, hh):  # 실거래 단지명과 K-apt 단지명을 맞춰 세대수를 채움
-    by_dn = {(norm(n), d): h for n, d, h in hh}
+def match(cs, hh):  # 실거래 단지명과 K-apt 단지명을 맞춰 세대수(총 세대수, 면적 구간별 세대수)를 채움
+    by_dn = {(norm(n), d): (h, tuple(hb)) for n, d, h, hb in hh}
     by_n = defaultdict(set)
-    for n, d, h in hh:
-        by_n[norm(n)].add(h)
+    for n, d, h, hb in hh:
+        by_n[norm(n)].add((h, tuple(hb)))
     for c in cs:
         nm, dg = norm(c["_nm"]), c["_dg"]
-        h = by_dn.get((nm, dg))
-        if h is None and len(by_n.get(nm, ())) == 1:
-            h = next(iter(by_n[nm]))
-        if h is None:  # 이름이 서로 포함되는 경우 (같은 동 또는 동 정보 없음), 후보가 하나일 때만
-            cand = {hv for (n, d), hv in by_dn.items()
+        v = by_dn.get((nm, dg))
+        if v is None and len(by_n.get(nm, ())) == 1:
+            v = next(iter(by_n[nm]))
+        if v is None:  # 이름이 서로 포함되는 경우 (같은 동 또는 동 정보 없음), 후보가 하나일 때만
+            cand = {vv for (n, d), vv in by_dn.items()
                     if min(len(nm), len(n)) >= 3 and (nm in n or n in nm) and (d == dg or not d)}
-            h = next(iter(cand)) if len(cand) == 1 else None
-        c["h"] = h or 0
+            v = next(iter(cand)) if len(cand) == 1 else None
+        c["h"] = v[0] if v else 0
+        if v and any(v[1]):
+            c["hb"] = list(v[1])
 
 
 def build(gname, rows_by_idx, M):
@@ -174,7 +190,8 @@ def build(gname, rows_by_idx, M):
         names[name] += 1
     out = []
     for (name, dong), series in acc.items():
-        if sum(len(v) for d in series.values() for v in d.values()) < MIN_TRADES:
+        series = {kb: d for kb, d in series.items() if sum(len(v) for v in d.values()) >= MIN_TRADES}
+        if not series:
             continue
         c = {"n": name if names[name] == 1 else f"{name}({dong})", "y": year[(name, dong)],
              "h": 0, "_nm": name, "_dg": dong,

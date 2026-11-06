@@ -130,6 +130,7 @@ var sel=$("base");
 function fmt(p){var m=Math.round(p*10000),e=Math.floor(m/10000),r=m%10000;return e+"억"+(r?" "+r.toLocaleString("ko-KR")+"만":"")}
 function py(a){return Math.round(a/.75/3.3058)}
 function lab(a){return a+"㎡ (약 "+py(a)+"평)"}
+function hbl(i,a){var d=D[i],k=a<60?0:a<85?1:a<135?2:3,n=d&&d.hb&&d.hb[k];return n?["60㎡ 이하","60~85㎡","85~135㎡","135㎡ 초과"][k]+" 구간 "+n.toLocaleString("ko-KR")+"세대":""}
 function areasOf(i){var d=D[i],o=[],k,m;if(d&&d.c){m=d.c[S.tp]||{};for(k in m)o.push(+k)}else o=[59,84];return o.sort(function(x,y){return x-y})}
 function raw(i,a){var d=D[i];return d.c?((d.c[S.tp]&&d.c[S.tp][a])||[]):null}
 function cur(i,a){var d=D[i],r=raw(i,a),q;if(r){for(q=r.length-1;q>=0;q--)if(r[q]!=null)return r[q];return 0}return d["p"+a]*(S.tp==="rent"?.5+(i*37%17)/100:1)}
@@ -137,7 +138,7 @@ fillGu();fillSel();
 function render(){
   var b=D[S.b];if(!b){$("bprice").textContent="데이터 없음";return}var bp=cur(S.b,S.a);
   $("tolv").textContent="±"+S.t+"%";
-  $("bname").textContent=b.n+" · "+b.gu+" · "+lab(S.a)+" "+(S.tp==="rent"?"전세":"매매")+" · 최근 "+b.d;
+  $("bname").textContent=b.n+" · "+b.gu+" · "+lab(S.a)+(hbl(S.b,S.a)?" ("+hbl(S.b,S.a)+")":"")+" "+(S.tp==="rent"?"전세":"매매")+" · 최근 "+b.d;
   if(!bp){$("bprice").textContent="거래 데이터 없음";$("ruler").innerHTML="";$("cnt").textContent="";$("list").innerHTML='<li class="empty">이 면적·유형의 거래가 없어요. 다른 조건을 선택해 보세요.</li>';chart([]);return}
   $("bprice").textContent=fmt(bp);
   var bs=smo(S.b,S.a),pairs=[],best=[];
@@ -155,7 +156,7 @@ function render(){
   $("cnt").textContent="쌍둥이 단지 "+hit.length+"곳"+(tot>hit.length?" (후보 "+tot+"곳 중 유사도 상위)":" · 유사도순");
   $("list").innerHTML=hit.length?hit.map(function(x){
     var s=x.df>=0?"+":"",c=x.df>=0?"up":"dn";
-    return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · "+x.d.h.toLocaleString("ko-KR")+"세대":"")+" · "+lab(x.a)+" · 가격·추이 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
+    return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · 총 "+x.d.h.toLocaleString("ko-KR")+"세대":"")+'</div><div class="m">'+lab(x.a)+(hbl(x.i,x.a)?" · "+hbl(x.i,x.a):"")+" · 가격·추이 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
   }).join(""):'<li class="empty">이 범위에 맞는 단지가 없어요. 허용 범위를 넓히거나 구 제한을 풀어 보세요.</li>';
   chart(hit);
 }
@@ -232,11 +233,11 @@ function fillSel(){var g=$("gu").value,ix=[];D.forEach(function(d,i){if(d.gu===g
  ix.sort(function(a,b){return D[a].n.localeCompare(D[b].n,"ko")});sel.innerHTML="";
  ix.forEach(function(i){var o=document.createElement("option");o.value=i;o.textContent=D[i].n+(D[i].y?" ("+D[i].y+"년)":"");sel.appendChild(o)});S.b=ix.length?ix[0]:0;fillAr()}
 function fillAr(){var as=areasOf(S.b),c=$("ar");c.innerHTML="";
- as.forEach(function(a){var o=document.createElement("option");o.value=a;o.textContent=lab(a);c.appendChild(o)});
+ as.forEach(function(a){var o=document.createElement("option");o.value=a;o.textContent=lab(a)+(hbl(S.b,a)?" · "+hbl(S.b,a):"");c.appendChild(o)});
  S.a=as.indexOf(S.a)>=0?S.a:(as.indexOf(59)>=0?59:(as[0]||59));c.value=S.a}
 function loadGu(g,cb){var s=LOADED[g.code];if(s===1){cb();return}if(s){s.push(cb);return}LOADED[g.code]=[cb];
  fetch("data/"+g.code+".json",{cache:"no-cache"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){
-  j.complexes.forEach(function(c){D.push({n:c.n,gu:g.name,y:c.y||0,h:c.h||0,d:IDX.updated,c:c})});var q=LOADED[g.code];LOADED[g.code]=1;q.forEach(function(f){f()})
+  j.complexes.forEach(function(c){D.push({n:c.n,gu:g.name,y:c.y||0,h:c.h||0,hb:c.hb||null,d:IDX.updated,c:c})});var q=LOADED[g.code];LOADED[g.code]=1;q.forEach(function(f){f()})
  }).catch(function(){var q=LOADED[g.code];LOADED[g.code]=0;$("note").textContent=g.name+" 데이터를 불러오지 못했어요.";q.forEach(function(f){f()})})}
 function loadMany(list,cb){var n=0,t=list.length;if(!t){setNote();cb();return}list.forEach(function(g){loadGu(g,function(){n++;if(n<t)$("note").textContent="불러오는 중 "+n+"/"+t;else{setNote();cb()}})})}
 function needLoad(cb){if(!IDX){cb();return}loadMany(IDX.gus.filter(function(g){return S.cg==="all"||g.name===S.cg}),cb)}
