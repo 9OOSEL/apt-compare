@@ -90,6 +90,9 @@ li .p{font-weight:700;font-size:16px}
 <label class="f" for="mh">단지 규모</label>
 <select id="mh"><option value="400">400세대 이상</option><option value="0">전체</option></select>
 
+<label class="f" for="sm">유사도 기준</label>
+<select id="sm"><option value="both">가격과 추이 모두 비슷</option><option value="trend">추이만 비슷 (가격 차이 허용)</option></select>
+
 <section class="base" aria-live="polite">
   <div class="sm" id="bname"></div>
   <div class="big" id="bprice"></div>
@@ -127,7 +130,7 @@ var D=[
 {n:"푸른언덕",gu:"강동구",y:2020,h:720,p59:10.9,p84:14.4,d:"2026.09"},
 {n:"로뎀 프레스티지",gu:"중랑구",y:2017,h:660,p59:7.7,p84:10.5,d:"2026.10"}
 ];
-var S={b:0,a:59,t:30,cg:"all",mh:400,tp:"sale"},IDX=null,LOADED={};
+var S={b:0,a:59,t:30,cg:"all",mh:400,sm:"both",tp:"sale"},IDX=null,LOADED={};
 function cur(i){var d=D[i];if(d.c){var a=(d.c[S.tp]&&d.c[S.tp][S.a])||[],q;for(q=a.length-1;q>=0;q--)if(a[q]!=null)return a[q];return 0}return d["p"+S.a]*(S.tp==="rent"?.5+(i*37%17)/100:1)}
 function fmt(p){var m=Math.round(p*10000),e=Math.floor(m/10000),r=m%10000;return e+"억"+(r?" "+r.toLocaleString("ko-KR")+"만":"")}
 var $=function(i){return document.getElementById(i)};
@@ -147,10 +150,10 @@ function render(){
   all.forEach(function(x){if(Math.abs(x.df)>S.t+10)return;h+='<div class="dot'+(x.h?' in':'')+'" style="left:'+pos(x.p)+'%"></div>'});
   h+='<div class="me" style="left:50%"></div><div class="lbl" style="left:0%;transform:none">'+fmt(lo)+'</div><div class="lbl" style="left:100%;transform:translateX(-100%)">'+fmt(hi)+'</div>';
   $("ruler").innerHTML=h;
-  $("cnt").textContent="쌍둥이 단지 "+hit.length+"곳"+(tot>hit.length?" (후보 "+tot+"곳 중 추이 유사도 상위)":" · 추이 유사도순");
+  $("cnt").textContent="쌍둥이 단지 "+hit.length+"곳"+(tot>hit.length?" (후보 "+tot+"곳 중 유사도 상위)":" · 유사도순");
   $("list").innerHTML=hit.length?hit.map(function(x){
     var s=x.df>=0?"+":"",c=x.df>=0?"up":"dn";
-    return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · "+x.d.h.toLocaleString("ko-KR")+"세대":"")+" · 추이 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
+    return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · "+x.d.h.toLocaleString("ko-KR")+"세대":"")+" · "+(S.sm==="trend"?"추이":"가격·추이")+" 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
   }).join(""):'<li class="empty">이 범위에 맞는 단지가 없어요. 허용 범위를 넓히거나 구 제한을 풀어 보세요.</li>';
 chart(hit);
 }
@@ -213,9 +216,9 @@ function smo(i){var k=i+"|"+S.tp+"|"+S.a;if(SM[k])return SM[k];var a=ser(i),o=[]
  return SM[k]=o}
 function sim(bs,i){var vv=vol(i),n=0,q,k,d,s=0,b0=0,c0=0,idx=[];for(q=0;q<250;q++)if(vv[q]>0)n++;if(n<12)return null;
  var cs=smo(i);for(q=0;q<250;q++)if(bs[q]!=null&&cs[q]!=null)idx.push(q);if(idx.length<24)return null;
- for(k=0;k<3;k++){b0+=bs[idx[k]];c0+=cs[idx[k]]}b0/=3;c0/=3;
+ if(S.sm==="trend"){for(k=0;k<3;k++){b0+=bs[idx[k]];c0+=cs[idx[k]]}b0/=3;c0/=3}else{b0=1;c0=1}
  for(k=0;k<idx.length;k++){d=Math.log((cs[idx[k]]/c0)/(bs[idx[k]]/b0));s+=d*d}
- return Math.round(Math.max(0,1-Math.sqrt(s/idx.length)/.25)*100)}
+ return Math.round(Math.max(0,1-Math.sqrt(s/idx.length)/(S.sm==="trend"?.25:.2))*100)}
 function hOK(d){return !S.mh||(d.h||0)>=S.mh}
 function cgOK(d,b){return S.cg==="all"||(S.cg==="same"?d.gu===b.gu:d.gu===S.cg)}
 function fillGu(){var names=IDX?IDX.gus.map(function(g){return g.name}):D.map(function(d){return d.gu}).filter(function(v,i,a){return a.indexOf(v)===i}).sort();
@@ -232,6 +235,7 @@ function loadGu(g,cb){var s=LOADED[g.code];if(s===1){cb();return}if(s){s.push(cb
  }).catch(function(){var q=LOADED[g.code];LOADED[g.code]=0;$("note").textContent=g.name+" 데이터를 불러오지 못했어요.";q.forEach(function(f){f()})})}
 function loadMany(list,cb){var n=0,t=list.length;if(!t){setNote();cb();return}list.forEach(function(g){loadGu(g,function(){n++;if(n<t)$("note").textContent="불러오는 중 "+n+"/"+t;else{setNote();cb()}})})}
 function needLoad(cb){if(!IDX){cb();return}loadMany(IDX.gus.filter(function(g){return S.cg==="all"||g.name===S.cg}),cb)}
+$("sm").onchange=function(){S.sm=$("sm").value;render()};
 $("mh").onchange=function(){S.mh=+$("mh").value;fillSel();HID={};render()};
 $("cgu").onchange=function(){S.cg=$("cgu").value;needLoad(render)};
 $("gu").onchange=function(){var v=$("gu").value,g=IDX&&IDX.gus.filter(function(x){return x.name===v})[0],go=function(){fillSel();HID={};needLoad(render)};if(g)loadGu(g,go);else go()};
