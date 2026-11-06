@@ -143,7 +143,7 @@ function render(){
   $("bprice").textContent=fmt(bp);
   var bs=smo(S.b,S.a),pairs=[],best=[];
   D.forEach(function(d,j){if(j===S.b||!cgOK(d,b)||!hOK(d))return;var top=null;
-    areasOf(j).forEach(function(a){var p=cur(j,a);if(!p)return;var df=(p-bp)/bp*100,x={d:d,i:j,a:a,p:p,df:df};
+    areasOf(j).forEach(function(a){var p=cur(j,a);if(!p||n26(j,a)<=MINN)return;var df=(p-bp)/bp*100,x={d:d,i:j,a:a,p:p,df:df};
       if(Math.abs(df)<=S.t+10)pairs.push(x);if(Math.abs(df)>S.t*3)return;
       var r=sim(bs,j,a);if(!r||r.s<50||r.g>S.t/100)return;x.sim=r.s;if(!top||x.sim>top.sim)top=x});
     if(top)best.push(top)});
@@ -157,7 +157,7 @@ function render(){
   $("list").innerHTML=hit.length?hit.map(function(x){
     var s=x.df>=0?"+":"",c=x.df>=0?"up":"dn";
     return '<li><div><div class="n">'+x.d.n+'</div><div class="m">'+x.d.gu+(x.d.dg?" "+x.d.dg:"")+(x.d.y?" · "+x.d.y+"년":"")+(x.d.h?" · 총 "+x.d.h.toLocaleString("ko-KR")+"세대":"")+'</div><div class="m">'+lab(x.a)+(hbl(x.i,x.a)?" · "+hbl(x.i,x.a):"")+" · 가격·추이 유사 "+x.sim+"%"+'</div></div><div class="r"><div class="p">'+fmt(x.p)+'</div><div class="d '+c+'">'+s+x.df.toFixed(1)+'%</div></div></li>';
-  }).join(""):'<li class="empty">이 범위에 맞는 단지가 없어요. 허용 범위를 넓히거나 구 제한을 풀어 보세요.</li>';
+  }).join(""):'<li class="empty">올해 거래 11건 이상인 단지 중 이 범위에 맞는 곳이 없어요. 허용 범위를 넓히거나 구 제한을 풀어 보세요.</li>';
   chart(hit);
 }
 var CH={r:"all",hit:[],bk:""},HID={},VON=true;
@@ -222,6 +222,9 @@ function sim(bs,i,a){var q,k,d,s=0,idx=[],gp=[];if(ntm(i,a)<12)return null;
  for(k=0;k<idx.length;k++){d=Math.log(cs[idx[k]]/bs[idx[k]]);s+=d*d;gp.push(Math.abs(d))}
  gp.sort(function(x,y){return x-y});
  return{s:Math.round(Math.max(0,1-Math.sqrt(s/idx.length)/.2)*100),g:gp[gp.length>>1]}}
+var MINN=10;
+function n26(i,a){var d=D[i];if(!d.c)return 999;var c=d.c.cnt&&d.c.cnt[S.tp]&&d.c.cnt[S.tp][a],y=IDX?+IDX.updated.slice(0,4):2026,k,n=0;if(!c)return 0;
+ for(k=(y-2006)*12;k<(y-2006)*12+12;k++)n+=c[k-d.off]||0;return n}
 function hOK(d){return !S.mh||d.nh||(d.h||0)>=S.mh}
 function cgOK(d,b){return S.cg==="all"||(S.cg==="same"?d.gu===b.gu:d.gu===S.cg)}
 function fillGu(){var names=IDX?IDX.gus.map(function(g){return g.name}):D.map(function(d){return d.gu}).filter(function(v,i,a){return a.indexOf(v)===i});
