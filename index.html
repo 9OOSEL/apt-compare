@@ -237,7 +237,12 @@ function fillAr(){var as=areasOf(S.b),c=$("ar");c.innerHTML="";
  S.a=as.indexOf(S.a)>=0?S.a:(as.indexOf(59)>=0?59:(as[0]||59));c.value=S.a}
 function loadGu(g,cb){var s=LOADED[g.code];if(s===1){cb();return}if(s){s.push(cb);return}LOADED[g.code]=[cb];
  fetch("data/"+g.code+".json",{cache:"no-cache"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){
-  var st0=j.start||IDX.start,off=(+st0.slice(0,4)-2006)*12+(+st0.slice(5,7)-1);
+  var off,L=0,c0=j.complexes[0],ky;
+  if(j.start)off=(+j.start.slice(0,4)-2006)*12+(+j.start.slice(5,7)-1);
+  else{/* 예전 형식 파일: 시작월 정보가 없어서 배열 길이와 마지막 달(updated)로 역산 */
+   if(c0)["sale","rent"].forEach(function(t){for(ky in c0[t])L=Math.max(L,c0[t][ky].length)});
+   off=(+IDX.updated.slice(0,4)-2006)*12+(+IDX.updated.slice(5,7)-1)-(L-1)}
+  
   j.complexes.forEach(function(c){D.push({off:off,nh:!j.hh,n:c.n,gu:g.name,y:c.y||0,h:c.h||0,dg:c.dg||"",hb:c.hb||null,d:IDX.updated,c:c})});var q=LOADED[g.code];LOADED[g.code]=1;q.forEach(function(f){f()})
  }).catch(function(){var q=LOADED[g.code];LOADED[g.code]=0;$("note").textContent=g.name+" 데이터를 불러오지 못했어요.";q.forEach(function(f){f()})})}
 function loadMany(list,cb){var n=0,t=list.length;if(!t){setNote();cb();return}list.forEach(function(g){loadGu(g,function(){n++;if(n<t)$("note").textContent="불러오는 중 "+n+"/"+t;else{setNote();cb()}})})}
