@@ -1,4 +1,4 @@
-"""국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json
+ """국토교통부 아파트 실거래가(매매/전세) -> data/<구코드>.json + data/index.json #
 GitHub Actions에서 매일 자동 실행됩니다. 로컬 실행: export DATA_GO_KR_KEY="인증키(Decoding)" 후 python fetch_apt_data.py
 """
 import os, re, json, time, datetime, urllib.parse, urllib.request, urllib.error
